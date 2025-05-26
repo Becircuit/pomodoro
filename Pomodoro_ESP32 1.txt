@@ -1,0 +1,158 @@
+#include <LiquidCrystal.h>
+
+// LCD Pins
+const int rs = 12, en = 14, d4 = 27, d5 = 26, d6 = 25, d7 = 33, bckLight=32;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+// Buzzer
+const int buzzerPin = 4;
+
+// Buttons
+const int btnSet = 13;
+const int btnUp = 15;
+const int btnDown = 2;
+
+// Timings (in seconds)
+const unsigned int workTime = 25 * 60;
+const unsigned int shortBreakTime = 5 * 60;
+const unsigned int longBreakTime = 20 * 60;
+
+// States
+enum Phase { WAITING, WORK, BREAK_SHORT, BREAK_LONG, DONE };
+Phase currentPhase = WAITING;
+Phase lastCurrentPhase = WORK;
+
+unsigned long previousMillis = 0;
+unsigned int currentCycle = 0;
+unsigned int timeLeft = workTime;
+bool timerRunning = false;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(buzzerPin, OUTPUT);
+  pinMode(btnSet, INPUT_PULLUP);
+  pinMode(btnUp, INPUT_PULLUP);
+  pinMode(btnDown, INPUT_PULLUP);
+
+  pinMode(bckLight,OUTPUT);
+  digitalWrite(bckLight,HIGH);
+
+  lcd.begin(16, 2);
+  lcd.print("Pomodoro Ready!");
+  delay(2000);
+  lcd.clear();
+}
+
+void loop() {
+  handleButtonPress();
+
+  if (timerRunning) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= 1000) {
+      previousMillis = currentMillis;
+
+      if (timeLeft > 0) {
+        timeLeft--;
+        displayTime();
+      } else {
+        timerRunning = false;
+        tone(buzzerPin, 1000, 1000); // Play sound for 1 second
+        delay(1000);
+        noTone(buzzerPin);
+
+        switch (currentPhase) {
+          case WORK:
+            currentCycle++;
+            if (currentCycle < 4) {
+              currentPhase = (currentCycle == 3) ? BREAK_LONG : BREAK_SHORT;
+              timeLeft = (currentCycle == 3) ? longBreakTime : shortBreakTime;
+            } else {
+              currentPhase = DONE;
+              lcd.clear();
+              lcd.print("Pomodoro Done!");
+              return;
+            }
+            break;
+
+          case BREAK_SHORT:
+          case BREAK_LONG:
+            currentPhase = WORK;
+            timeLeft = workTime;
+            break;
+
+          default:
+            break;
+        }
+
+        timerRunning = true;
+        previousMillis = millis();
+        displayTime();
+      }
+    }
+  }
+}
+
+void handleButtonPress() {
+  static bool lastSetState = HIGH;
+  bool currentSetState = digitalRead(btnSet);
+
+  if (lastSetState == HIGH && currentSetState == LOW) {
+    if (!timerRunning && currentPhase == WAITING) {
+      currentPhase = lastCurrentPhase;
+    //  timeLeft = workTime;
+      timerRunning = true;
+      previousMillis = millis();
+      tone(buzzerPin, 1500, 500); // Start signal
+      displayTime();
+    }
+    else if (timerRunning && currentPhase != WAITING) {
+      lastCurrentPhase = currentPhase;
+      currentPhase = WAITING;
+   
+      timerRunning = false;
+      
+      tone(buzzerPin, 1500, 500); // Start signal
+      displayTime();
+    }
+  }
+
+  lastSetState = currentSetState;
+}
+
+void displayTime() {
+  lcd.clear();
+
+  switch (currentPhase) {
+    case WORK:
+      lcd.print("Work Cycle ");
+      lcd.print(currentCycle + 1);
+      lcd.setCursor(0, 1);
+      break;
+    case BREAK_SHORT:
+      lcd.print("Short Break");
+      lcd.setCursor(0, 1);
+      break;
+    case BREAK_LONG:
+      lcd.print("Long Break");
+      lcd.setCursor(0, 1);
+      break;
+    case WAITING:
+      lcd.setCursor(10, 1);
+      lcd.print("Paused");
+      lcd.setCursor(0, 1);
+      break;
+    default:
+      break;
+  }
+
+  unsigned int minutes = timeLeft / 60;
+  unsigned int seconds = timeLeft % 60;
+
+  if (minutes < 10) lcd.print("0");
+  lcd.print(minutes);
+  lcd.print(":");
+  if (seconds < 10) lcd.print("0");
+  lcd.print(seconds);
+
+ // Serial.print(minutes); Serial.print(":");Serial.println(seconds);
+}
